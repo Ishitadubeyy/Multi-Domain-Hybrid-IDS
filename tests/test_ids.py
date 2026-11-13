@@ -5,6 +5,39 @@ import pandas as pd
 
 from multi_domain_ids import MultiDomainIDS
 from multi_domain_ids.ensemble import HybridEnsembleModel
+from multi_domain_ids.model_loader import load_model_artifact
+
+
+def test_original_network_model_loads_and_predicts():
+    artifact = load_model_artifact("models/final_model.joblib")
+    assert artifact["model_type"] == "hybrid_voting_5ensemble_v3"
+    assert len(artifact["feature_columns"]) == 17
+    assert artifact["threshold"] > 0.0
+
+    model = MultiDomainIDS()
+    model.network.load_pretrained_model()
+    proba = model.network.predict_proba({
+        "Flow Duration": 1.0,
+        "Total Fwd Packets": 10,
+        "Total Backward Packets": 5,
+        "Total Length of Fwd Packets": 100.0,
+        "Total Length of Bwd Packets": 80.0,
+        "Fwd Packet Length Max": 30.0,
+        "Fwd Packet Length Min": 5.0,
+        "Fwd Packet Length Mean": 12.0,
+        "Fwd Packet Length Std": 4.0,
+        "Bwd Packet Length Max": 25.0,
+        "Bwd Packet Length Min": 6.0,
+        "Bwd Packet Length Mean": 14.0,
+        "Bwd Packet Length Std": 3.0,
+        "Flow Bytes/s": 10000.0,
+        "Flow Packets/s": 200.0,
+        "Packet Length Mean": 15.0,
+        "Packet Length Std": 2.0,
+    })
+    assert proba.shape == (1, 2)
+    assert 0.0 <= proba[0, 0] <= 1.0
+    assert 0.0 <= proba[0, 1] <= 1.0
 
 
 def test_hybrid_ensemble_synthetic_network_data():

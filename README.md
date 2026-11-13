@@ -18,12 +18,29 @@ The project preserves the legacy hybrid ensemble from the earlier network IDS wo
 - `src/multi_domain_ids/cli.py` – training and evaluation entry points
 - `tests/test_ids.py` – smoke tests that validate the core behavior
 
-## Key model decisions
+## Phase 1: Network IDS migration
 
-1. The network model intentionally keeps the soft-voting ensemble weight pattern from the reference implementation: `[4.0, 3.0, 1.5, 1.0, 0.8]`.
-2. Probability calibration is implemented through `CalibratedClassifierCV` when available, keeping the same general behavior as the prior project.
-3. Each domain pipeline is trained separately so feature sets are not forced across unrelated data sources.
-4. Raw datasets are not committed to the repo. Instead, the project provides adapters and synthetic-data smoke tests so the implementation remains portable and safe for GitHub use.
+This repository now includes the original, pre-trained network IDS artifact from the earlier project and uses it as the `NetworkSecurityPipeline` implementation.
+
+The actual legacy artifact is loaded through the preserved compatibility loader at [src/multi_domain_ids/model_loader.py](src/multi_domain_ids/model_loader.py), which maps the legacy sklearn global required by the saved joblib file. The model is expected at `models/final_model.joblib` in this repository and can also fall back to the reference project location under `../Hybrid-Threat-detection-ids-main/models/final_model.joblib` if needed.
+
+### Network model contract
+
+- Model artifact: `models/final_model.joblib`
+- Model type: `hybrid_voting_5ensemble_v3`
+- Scaler: `RobustScaler`
+- Feature ordering: exact 17-feature CICIDS schema preserved in the same order as the old project
+- Threshold: preserved from the saved artifact (`0.21` in the original model)
+- Loader: `src/multi_domain_ids/model_loader.py`
+- Feature extractor: `src/multi_domain_ids/feature_extractor.py`
+- Inference wrapper: `src/multi_domain_ids/domains.py` (`NetworkSecurityPipeline`)
+
+### Important constraints
+
+- The original project is left intact; the new repository consumes a copy of the trained artifact.
+- No retraining is performed in Phase 1.
+- No benchmark claims are introduced beyond the existing legacy artifact metadata.
+- The remaining domain pipelines remain available, but this phase focuses only on the network domain integration.
 
 ## Quick start
 

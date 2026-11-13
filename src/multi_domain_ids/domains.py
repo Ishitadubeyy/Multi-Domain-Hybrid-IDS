@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -13,15 +15,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from .ensemble import HybridEnsembleModel
+from .feature_extractor import CICIDS_FEATURES
 from .feature_schema import (
-    CICIDS_FEATURES,
     DNS_FEATURE_COLUMNS,
     HOST_FEATURE_COLUMNS,
     IDENTITY_FEATURE_COLUMNS,
     SQL_FEATURE_COLUMNS,
     coerce_numeric_frame,
-    normalize_label,
 )
+from .model_loader import load_model_artifact
 
 
 class BaseDomainPipeline:
@@ -37,31 +39,62 @@ class BaseDomainPipeline:
 
 @dataclass
 class NetworkSecurityPipeline(BaseDomainPipeline):
-    model: HybridEnsembleModel = field(default_factory=HybridEnsembleModel)
+    model: Any = None
+    model_path: str = "models/final_model.joblib"
     label_column: str = "label"
+    feature_columns: list[str] | None = None
+    threshold: float = 0.5
+    scaler: Any = None
 
-    def fit(self, X: Any, y: Any) -> "NetworkSecurityPipeline":
-        if isinstance(X, pd.DataFrame):
-            frame = X.copy()
-            if self.label_column in frame.columns:
-                frame = frame.drop(columns=[self.label_column], errors="ignore")
-            numeric = frame.reindex(columns=CICIDS_FEATURES, fill_value=0.0)
-            numeric = numeric.fillna(0.0)
-        else:
-            numeric = pd.DataFrame(X, columns=CICIDS_FEATURES[: X.shape[1]])
-        self.model.fit(numeric, np.asarray(y, dtype=int))
+    def _default_model_path(self) -> str:
+        candidates = [
+            Path(__file__).resolve().parents[2] / "models" / "final_model.joblib",
+            Path.cwd() / "models" / "final_model.joblib",
+            os.path.join(os.getcwd(), "models", "final_model.joblib"),
+            os.path.join(os.getcwd(), "..", "Hybrid-Threat-detection-ids-main", "models", "final_model.joblib"),
+        ]
+        for candidate in candidates:
+            path = str(candidate)
+            if os.path.exists(path):
+                return path
+        return self.model_path
+
+    def load_pretrained_model(self) -> "NetworkSecurityPipeline":
+        resolved = self._default_model_path()
+        artifact = load_model_artifact(resolved)
+        self.model = artifact["model"]
+        self.scaler = artifact.get("scaler")
+        self.feature_columns = artifact.get("feature_columns", CICIDS_FEATURES)
+        self.threshold = float(artifact.get("threshold", 0.5))
         return self
 
-    def predict_proba(self, X: Any) -> np.ndarray:
+    def fit(self, X: Any, y: Any) -> "NetworkSecurityPipeline":
+        if self.model is None:
+            self.load_pretrained_model()
+        return self
+
+    def _prepare_frame(self, X: Any) -> pd.DataFrame:
         if isinstance(X, dict):
             frame = pd.DataFrame([X])
         elif isinstance(X, pd.DataFrame):
             frame = X.copy()
         else:
             frame = pd.DataFrame(X)
-        numeric = frame.reindex(columns=CICIDS_FEATURES, fill_value=0.0)
-        numeric = numeric.fillna(0.0)
-        return self.model.predict_proba(numeric)
+        if self.feature_columns is None:
+            feature_columns = CICIDS_FEATURES
+        else:
+            feature_columns = self.feature_columns
+        numeric = frame.reindex(columns=feature_columns, fill_value=0.0)
+        return numeric.fillna(0.0)
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        if self.model is None:
+            self.load_pretrained_model()
+        frame = self._prepare_frame(X)
+        if self.scaler is not None:
+            X_scaled = self.scaler.transform(frame.to_numpy(dtype=float))
+            return self.model.predict_proba(X_scaled)
+        return self.model.predict_proba(frame.to_numpy(dtype=float))
 
 
 @dataclass
@@ -176,13 +209,9 @@ class MultiDomainIDS:
     dns: DnsSecurityPipeline = field(default_factory=DnsSecurityPipeline)
 
     def fit_demo(self) -> "MultiDomainIDS":
+        self.network.load_pretrained_model()
+
         rng = np.random.default_rng(42)
-        network_x = pd.DataFrame({
-            col: rng.normal(0.0, 1.0, 180) for col in CICIDS_FEATURES
-        })
-        network_y = np.array([0] * 90 + [1] * 90, dtype=int)
-        network_x.loc[90:, :] += 2.0
-        self.network.fit(network_x, network_y)
 
         sql_queries = [
             "SELECT * FROM users WHERE id = 1",
