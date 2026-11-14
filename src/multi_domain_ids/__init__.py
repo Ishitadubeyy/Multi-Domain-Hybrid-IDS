@@ -7,6 +7,8 @@ from .domains import (
     NetworkSecurityPipeline,
 )
 from .ensemble import HybridEnsembleModel
+from .alert_pipeline import AlertProcessor, JsonlAlertSink
+from .service import MultiDomainDetectionService
 
 __all__ = [
     "HybridEnsembleModel",
@@ -16,4 +18,7 @@ __all__ = [
     "IdentitySecurityPipeline",
     "DnsSecurityPipeline",
     "MultiDomainIDS",
+    "AlertProcessor",
+    "JsonlAlertSink",
+    "MultiDomainDetectionService",
 ]

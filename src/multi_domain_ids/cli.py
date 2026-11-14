@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .domains import MultiDomainIDS
+from .sqli_model import train_sqli_dataset
 from .threat_intel import ThreatIntelScorer
 
 
@@ -90,6 +91,16 @@ def main() -> None:
 
     subparsers.add_parser("train-demo", help="Train a demo model across the five domains")
     subparsers.add_parser("evaluate-demo", help="Run a synthetic alert evaluation")
+    train_sqli_parser = subparsers.add_parser(
+        "train-sqli",
+        help="Train and evaluate the SQLi model from the actual combined SQLi CSV",
+    )
+    train_sqli_parser.add_argument("--dataset", required=True, help="Path to Normal &Malicious SQLi.csv")
+    train_sqli_parser.add_argument(
+        "--model-out",
+        default="models/sqli_model.joblib",
+        help="Output path for the locally ignored model artifact",
+    )
 
     args = parser.parse_args()
 
@@ -99,6 +110,9 @@ def main() -> None:
     elif args.command == "evaluate-demo":
         result = evaluate_demo()
         print(json.dumps(result, indent=2))
+    elif args.command == "train-sqli":
+        _, report = train_sqli_dataset(args.dataset, model_out=Path(args.model_out))
+        print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

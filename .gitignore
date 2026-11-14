@@ -12,3 +12,10 @@ models/
 logs/
 *.joblib
 *.pkl
+data/
+datasets/
+*.csv
+*.csv.gz
+*.txt.gz
+*.parquet
+*.zip
