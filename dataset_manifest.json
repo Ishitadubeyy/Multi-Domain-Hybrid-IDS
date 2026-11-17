@@ -1,6 +1,8 @@
 {
-  "inventory_date": "2026-11-13",
+  "inventory_date": "2026-11-15",
   "dataset_root": "C:\\Users\\ISHITA DUBEY\\Downloads",
+  "dataset_root_environment_variable": "MULTI_DOMAIN_IDS_DATASET_ROOT",
+  "path_override_environment_variable_pattern": "MULTI_DOMAIN_IDS_<DATASET_NAME>_PATH",
   "data_policy": "Dataset files are referenced in place and are not included in this repository.",
   "sources": {
     "ton_iot_archive": {
@@ -87,19 +89,19 @@
       "columns": ["time", "user_domain", "source_computer", "destination_computer"],
       "interpretation": "Names follow the official LANL format description and observed field order. Records are red-team event annotations, not a balanced binary table."
     },
-    "lanl_auth_documented_only": {
+    "lanl_auth_positional": {
       "field_count": 9,
       "columns": [
         "time", "source_user_domain", "destination_user_domain", "source_computer",
         "destination_computer", "authentication_type", "logon_type",
         "authentication_orientation", "success_failure"
       ],
-      "interpretation": "Official LANL documentation only; auth.txt.gz was not found and this schema was not locally validated or integrated."
+      "interpretation": "Field order follows official LANL documentation and was confirmed on the first five local records; full file validation requires consuming the gzip stream."
     },
-    "lanl_proc_documented_only": {
+    "lanl_proc_positional": {
       "field_count": 5,
       "columns": ["time", "user_domain", "computer", "process_name", "start_end"],
-      "interpretation": "Official LANL documentation only; the reported partial proc.txt.gz was not opened or processed, and this schema is not integrated."
+      "interpretation": "Field order follows official LANL documentation and was confirmed on two local records."
     },
     "ton_network": {
       "columns": [
@@ -164,7 +166,31 @@
       "schema": "cicids_sample",
       "label_distribution": {"BENIGN": 71973, "DDoS": 128027},
       "assigned_domain": "network",
+      "duplicate_rows": 1913,
       "processing_status": "Loader validates known CICIDS2017 labels and preserves three missing Flow Bytes/s values as null. This is a 200,000-row sample, not the full corpus; its underlying official-source provenance is unverified."
+    },
+    {
+      "name": "CICIDS-format simulation sample",
+      "path": "C:\\Users\\ISHITA DUBEY\\Downloads\\simulation_data.csv",
+      "format": "CSV",
+      "size_bytes": 169136,
+      "rows": 500,
+      "columns": 79,
+      "schema": "cicids_sample",
+      "label_distribution": {
+        "BENIGN": 404,
+        "DoS Hulk": 38,
+        "PortScan": 30,
+        "DDoS": 20,
+        "DoS GoldenEye": 3,
+        "DoS slowloris": 2,
+        "FTP-Patator": 2,
+        "DoS Slowhttptest": 1
+      },
+      "missing_cells": 0,
+      "duplicate_rows": 4,
+      "assigned_domain": "network",
+      "processing_status": "Schema and labels inspected. Provenance and independence from other CICIDS-format data are unverified; not used to claim model performance."
     },
     {
       "name": "Normal and Malicious SQL Injection",
@@ -179,16 +205,14 @@
     },
     {
       "name": "LANL auth",
-      "path": null,
-      "expected_path": "C:\\Users\\ISHITA DUBEY\\Downloads\\auth.txt.gz",
-      "searched_root": "C:\\Users\\ISHITA DUBEY\\Downloads",
-      "format": "expected gzip-compressed text; file not located",
-      "size_bytes": null,
-      "schema": null,
-      "documented_schema_reference": "lanl_auth_documented_only",
+      "path": "C:\\Users\\ISHITA DUBEY\\Downloads\\auth.txt.gz",
+      "format": "gzip-compressed, headerless comma-separated text",
+      "size_bytes": 7626505167,
+      "schema": "lanl_auth_positional",
+      "observed_sample_rows": 5,
       "label_distribution": null,
       "assigned_domain": "identity",
-      "processing_status": "NOT_FOUND_AFTER_RECURSIVE_SEARCH; official schema is documented as reference only and was not locally validated or integrated."
+      "processing_status": "Complete full-stream read: 1,051,430,459 rows, zero malformed rows, and gzip EOF/trailer validation succeeded. Outcomes: 1,038,590,151 success and 12,840,308 fail (1.2212% failure ratio). Time-bounded red-team association matched 735 of 749 annotations to 740 auth rows. Summary/checkpoint are under artifacts/identity. A prior transient checkpoint replacement error was recovered by resuming."
     },
     {
       "name": "LANL flows",
@@ -228,14 +252,13 @@
     {
       "name": "LANL proc",
       "path": "C:\\Users\\ISHITA DUBEY\\Downloads\\proc.txt.gz",
-      "format": "gzip-compressed text (user-reported)",
-      "size_bytes": null,
-      "download_progress_user_reported": "568 MB of 2.2 GB",
-      "schema": null,
-      "documented_schema_reference": "lanl_proc_documented_only",
+      "format": "gzip-compressed, headerless comma-separated text",
+      "size_bytes": 2358611883,
+      "schema": "lanl_proc_positional",
+      "observed_sample_rows": 2,
       "label_distribution": null,
       "assigned_domain": "host_endpoint",
-      "processing_status": "PENDING; file was not opened, extracted, moved, renamed, modified, or processed. The official schema is reference-only and is not integrated."
+      "processing_status": "Located and sample records match the documented five-field schema; the strict chunked LANL loader now supports this dataset. Full processing has not been run."
     },
     {
       "name": "ToN_IoT processed network",
@@ -533,10 +556,12 @@
     "status": "These are archive error-marker filenames, not dataset CSV files; no schema, size, or class distribution was inferred."
   },
   "inventory_notes": [
-    "The recursive search found a 200,000-row CICIDS-format train_sample.csv but no complete CICIDS2017 directory or full dataset file set.",
+    "The recursive Downloads scan found train_sample.csv, simulation_data.csv, Normal &Malicious SQLi.csv, flows.txt.gz, proc.txt.gz, dns.txt.gz, redteam.txt.gz, auth.txt.gz, and OneDrive_2026-11-13.zip.",
+    "The recursive search found a 200,000-row CICIDS-format train_sample.csv but no complete CICIDS2017 directory or full dataset file set. simulation_data.csv has 500 rows and unverified provenance.",
     "The ToN_IoT archive contains 20 processed CSV members listed above; all 20 payload sizes and CRC32 values match their local ZIP data descriptors. Processed Windows CSV files were not present in the archive listing.",
-    "LANL auth.txt.gz was not found after recursively searching the confirmed Downloads root.",
-    "The partially downloaded LANL proc.txt.gz entry is based only on the user-reported path and progress; it was not inspected.",
+    "The ToN_IoT archive is split/spanned or incomplete and could not be opened by the standard .NET ZIP reader; previously verified member-level results do not establish completeness of the full archive.",
+    "auth.txt.gz remained at 7,626,505,167 bytes across the stability check. Its first five records have nine fields matching the expected LANL auth schema; end-to-end gzip integrity is only established by a complete stream read.",
+    "proc.txt.gz is present at 2,358,611,883 bytes; its first two records have five fields matching the expected LANL process schema.",
     "train_sample.csv matches the tracked old-project sample after line-ending normalization; the old-project commit establishes the local sample lineage, not its original CICIDS download provenance."
   ],
   "integrity_audit": {
@@ -575,10 +600,13 @@
     },
     "lanl": {
       "documented_schemas_source": "https://csr.lanl.gov/data/cyber1/",
-      "dns_flows_redteam_field_order": "Matches the official format descriptions; local files remain headerless and the mapping is positional. Officially documented '?' missing-value placeholders and blank fields are normalized to missing.",
-      "auth_file_found": false,
-      "proc_file_processed": false,
-      "proc_note": "The user-reported partial file was not opened or processed. Its official schema is reference-only."
+      "field_order": "Auth, proc, DNS, flows, and redteam local samples match the official format descriptions; files remain headerless and schema mapping is positional. '?' and blank fields are normalized to missing.",
+      "auth_file_found": true,
+      "auth_size_bytes": 7626505167,
+      "auth_full_gzip_integrity_verified": false,
+      "proc_file_found": true,
+      "proc_size_bytes": 2358611883,
+      "proc_full_gzip_integrity_verified": false
     },
     "leakage_and_label_validation": {
       "cicids": "Only the legacy ordered 17 features are selected; unknown label values are rejected.",
@@ -632,12 +660,12 @@
       "reason": "Contains 749 red-team event annotations but no aligned benign rows or complete labeled examples."
     },
     "lanl_auth": {
-      "status": "UNAVAILABLE",
-      "reason": "No auth.txt.gz was found in the recursive Downloads search or archive entry listing."
+      "status": "FULL_STREAM_PROCESSED_GZIP_VALIDATED",
+      "reason": "The original gzip stream reached EOF and its trailer validated after resuming from a checkpoint. 1,051,430,459 records were read, all with valid nine-field width. Success/fail outcomes and a 300-second red-team association are summarized in artifacts/identity/auth_processing_summary.json. The legacy checkpoint lacked a red-team fingerprint; it was linked to the configured Downloads redteam file after verifying its path, 749 rows, and window, but the prior run's content fingerprint was unavailable. A transient checkpoint replacement error was logged and recovered."
     },
     "lanl_proc": {
-      "status": "PENDING",
-      "reason": "Partially downloaded file remains untouched and unprocessed."
+      "status": "SCHEMA_VALIDATED_LOADER_SUPPORTED",
+      "reason": "The local file is present and sample rows match the five-field schema; a full endpoint analysis or model has not been run."
     }
   }
 }

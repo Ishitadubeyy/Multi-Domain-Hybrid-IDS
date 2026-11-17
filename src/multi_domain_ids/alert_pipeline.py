@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+import ipaddress
 import json
 import threading
 from typing import Any
@@ -108,7 +109,25 @@ class AlertProcessor:
             indicator = event.get(field)
             if not indicator:
                 continue
-            provider_results = service.lookup(str(indicator))
+            try:
+                address = ipaddress.ip_address(str(indicator))
+            except ValueError:
+                results[f"{field}:lookup_policy"] = {
+                    "provider": "lookup_policy",
+                    "ip": str(indicator),
+                    "available": False,
+                    "error": "invalid_ip_skipped",
+                }
+                continue
+            if not address.is_global:
+                results[f"{field}:lookup_policy"] = {
+                    "provider": "lookup_policy",
+                    "ip": str(address),
+                    "available": False,
+                    "error": "non_global_ip_skipped",
+                }
+                continue
+            provider_results = service.lookup(str(address))
             for provider_name, result in provider_results.items():
                 results[f"{field}:{provider_name}"] = result
         return results

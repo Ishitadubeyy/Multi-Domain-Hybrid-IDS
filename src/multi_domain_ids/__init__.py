@@ -8,6 +8,7 @@ from .domains import (
 )
 from .ensemble import HybridEnsembleModel
 from .alert_pipeline import AlertProcessor, JsonlAlertSink
+from .auth_processing import process_auth_dataset
 from .service import MultiDomainDetectionService
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "MultiDomainIDS",
     "AlertProcessor",
     "JsonlAlertSink",
+    "process_auth_dataset",
     "MultiDomainDetectionService",
 ]

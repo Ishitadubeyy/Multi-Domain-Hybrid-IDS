@@ -8,6 +8,13 @@ venv/
 .coverage
 .idea/
 .DS_Store
+artifacts/
+evidence/
+*.tmp
+*.log
+*.jsonl
+*.evtx
+*.pcap
 models/
 logs/
 *.joblib

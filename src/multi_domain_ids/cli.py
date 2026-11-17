@@ -4,6 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
+from .auth_processing import process_auth_dataset
+from .dataset_config import dataset_path, dataset_root_path, output_directory
+from .dataset_inventory import discover_dataset_files
 from .domains import MultiDomainIDS
 from .sqli_model import train_sqli_dataset
 from .threat_intel import ThreatIntelScorer
@@ -91,15 +94,51 @@ def main() -> None:
 
     subparsers.add_parser("train-demo", help="Train a demo model across the five domains")
     subparsers.add_parser("evaluate-demo", help="Run a synthetic alert evaluation")
+    inventory_parser = subparsers.add_parser(
+        "dataset-inventory",
+        help="Recursively list dataset-like files under a configurable root",
+    )
+    inventory_parser.add_argument("--root", help="Dataset root; defaults to Downloads")
     train_sqli_parser = subparsers.add_parser(
         "train-sqli",
         help="Train and evaluate the SQLi model from the actual combined SQLi CSV",
     )
-    train_sqli_parser.add_argument("--dataset", required=True, help="Path to Normal &Malicious SQLi.csv")
+    train_sqli_parser.add_argument(
+        "--dataset",
+        help="Path to the SQLi CSV (defaults to MULTI_DOMAIN_IDS_SQLI_PATH or dataset root)",
+    )
     train_sqli_parser.add_argument(
         "--model-out",
         default="models/sqli_model.joblib",
         help="Output path for the locally ignored model artifact",
+    )
+    train_sqli_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Back up and replace an existing model artifact",
+    )
+    process_auth_parser = subparsers.add_parser(
+        "process-auth",
+        help="Stream LANL authentication records into a resumable aggregate report",
+    )
+    process_auth_parser.add_argument(
+        "--dataset",
+        help="Path to auth.txt.gz (defaults to MULTI_DOMAIN_IDS_AUTH_PATH or dataset root)",
+    )
+    process_auth_parser.add_argument(
+        "--redteam",
+        help="Path to redteam.txt.gz (defaults to MULTI_DOMAIN_IDS_REDTEAM_PATH or dataset root)",
+    )
+    process_auth_parser.add_argument(
+        "--output-dir",
+        help="Output directory (defaults to MULTI_DOMAIN_IDS_OUTPUT_DIR or ./artifacts)",
+    )
+    process_auth_parser.add_argument("--chunksize", type=int, default=100_000)
+    process_auth_parser.add_argument("--annotation-window-seconds", type=int, default=300)
+    process_auth_parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Refuse to resume from an existing checkpoint",
     )
 
     args = parser.parse_args()
@@ -110,9 +149,60 @@ def main() -> None:
     elif args.command == "evaluate-demo":
         result = evaluate_demo()
         print(json.dumps(result, indent=2))
+    elif args.command == "dataset-inventory":
+        print(
+            json.dumps(
+                {
+                    "root": str(dataset_root_path(args.root)),
+                    "files": discover_dataset_files(dataset_root_path(args.root)),
+                },
+                indent=2,
+            )
+        )
     elif args.command == "train-sqli":
-        _, report = train_sqli_dataset(args.dataset, model_out=Path(args.model_out))
+        _, report = train_sqli_dataset(
+            dataset_path("sqli", args.dataset),
+            model_out=Path(args.model_out),
+            overwrite=args.overwrite,
+        )
         print(json.dumps(report, indent=2))
+    elif args.command == "process-auth":
+        auth_path = dataset_path("auth", args.dataset)
+        redteam_path = dataset_path("redteam", args.redteam)
+        report = process_auth_dataset(
+            auth_path,
+            output_directory(args.output_dir) / "identity",
+            redteam_path=redteam_path,
+            chunksize=args.chunksize,
+            annotation_window_seconds=args.annotation_window_seconds,
+            resume=not args.no_resume,
+            progress_callback=_auth_progress(),
+        )
+        print(json.dumps(report, indent=2))
+
+
+def _auth_progress():
+    last_reported_rows = 0
+
+    def report_progress(report: dict) -> None:
+        nonlocal last_reported_rows
+        processed_rows = int(report["processed_rows"])
+        if processed_rows - last_reported_rows >= 1_000_000:
+            print(
+                json.dumps(
+                    {
+                        "status": "processing",
+                        "records_seen": report["records_seen"],
+                        "processed_rows": processed_rows,
+                        "elapsed_seconds": report["elapsed_seconds"],
+                        "rows_per_second": report["rows_per_second"],
+                    }
+                ),
+                flush=True,
+            )
+            last_reported_rows = processed_rows
+
+    return report_progress
 
 
 if __name__ == "__main__":

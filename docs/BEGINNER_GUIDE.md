@@ -22,14 +22,45 @@ Only the combined SQLi file is currently suitable for direct supervised training
 ```powershell
 python -m multi_domain_ids.cli train-sqli `
   --dataset "C:\Users\ISHITA DUBEY\Downloads\Normal &Malicious SQLi.csv" `
-  --model-out "models\sqli_model.joblib"
+  --model-out "models\sqli_model_candidate.joblib"
 ```
 
 The command reports measured holdout metrics and saves a local artifact. The split groups identical feature vectors so they cannot appear in both train and test partitions. Feature vectors with contradictory labels are excluded from both partitions and counted in the report. The resulting model accepts the dataset's 26 numeric feature columns; raw-query extraction is not enabled because the source of several feature definitions could not be verified. Do not feed the model guessed features.
+Existing artifact paths are protected by default. Use `--overwrite` only when intentionally replacing an artifact; the old file is preserved as a `.bak` copy.
 
-The CICIDS file located so far is a 200,000-row sample, not the full corpus; it has missing values and its original download provenance is unverified. The ToN-IoT bundle is structurally incomplete despite integrity checks on its 20 processed CSV members. LANL flows/DNS have no labels, `auth.txt.gz` was not found, and `proc.txt.gz` remains pending and untouched. These are not treated as trained production models.
+The CICIDS file located so far is a 200,000-row sample, not the full corpus; it has missing values and its original download provenance is unverified. The ToN-IoT bundle is structurally incomplete despite integrity checks on its 20 processed CSV members. LANL flows/DNS have no labels. The full `auth.txt.gz` is present and has a streaming processor, but it is not treated as processed until a full run completes. `proc.txt.gz` is present and its schema-specific loader is implemented; no production host model is claimed. See [the dataset inventory](DATASET_INVENTORY.md).
 
-## 3. Configure threat-intelligence providers (optional)
+## 3. Process the full LANL authentication file
+
+The input remains at its Downloads path. This command streams it in bounded
+chunks, validates the nine-field schema, uses red-team records only for
+time-bounded association, and writes compact aggregate/checkpoint files to the
+ignored project `artifacts` directory:
+
+```powershell
+python -m multi_domain_ids.cli process-auth `
+  --dataset "C:\Users\ISHITA DUBEY\Downloads\auth.txt.gz" `
+  --redteam "C:\Users\ISHITA DUBEY\Downloads\redteam.txt.gz" `
+  --output-dir "D:\projects\Multi-Domain-Hybrid-IDS\artifacts" `
+  --chunksize 100000
+```
+
+The run reads the full compressed stream and may take substantial time. It
+does not decompress the source to another file or write one output row per
+authentication event. Progress is printed per million processed records.
+`artifacts\identity\auth_processing_checkpoint.json` is updated as chunks
+complete; rerunning the same command resumes from that checkpoint. Gzip is
+not seekable, so restart replays and skips the checkpointed input records.
+Review `auth_processing_summary.json` and `auth_processing_errors.jsonl` for
+the completion state, counts, elapsed time, malformed rows, and annotation
+join results. A complete run also validates the gzip trailer.
+
+Set `MULTI_DOMAIN_IDS_DATASET_ROOT`, individual
+`MULTI_DOMAIN_IDS_<NAME>_PATH` overrides, or `MULTI_DOMAIN_IDS_OUTPUT_DIR` to
+relocate datasets and generated outputs. See [`.env.example`](../.env.example);
+the example file is a template and is not automatically loaded by Python.
+
+## 4. Configure threat-intelligence providers (optional)
 
 Set credentials in the IDS process environment, not in source files or Wazuh XML:
 
@@ -45,7 +76,7 @@ $env:OPENCTI_ENABLED = "true"
 
 Only configure providers you are authorized to use. The provider integrations have independent failure handling and share a TTL cache. The application does not print API keys. Provider reputation and the legacy threat score are supplemental; the standardized alert severity is based on corroborating evidence, not model confidence alone.
 
-## 4. Run inference and write alerts
+## 5. Run inference and write alerts
 
 Application code can create the JSONL sink, provider service, processor, and inference service:
 
@@ -64,11 +95,11 @@ ids = MultiDomainDetectionService(
 )
 ```
 
-Call `detect_network(event, network_features)` with the legacy model's ordered 17 features. Call `detect_sqli_features(event, features)` with the exact 26-column SQLi dataset feature schema. For SQLi, a raw query alone is not enough to reproduce the unverified feature definitions. The host, identity, and DNS demo pipelines are not production models.
+Call `detect_network(event, network_features)` with the legacy model's ordered 17 features. Call `detect_sqli_features(event, features)` with the exact 26-column SQLi dataset feature schema. For SQLi, a raw query alone is not enough to reproduce the unverified feature definitions. The host, identity, and DNS demo models are not production detectors; the auth file processor is not an inference model.
 
 The processor appends one JSON object per line. A second JSONL record is emitted when cross-domain correlation finds suspicious events sharing an entity within the configured time window. Wazuh delivery is asynchronous through its agent; successful file writing is not proof of manager ingestion.
 
-## 5. Wazuh deployment for this Windows environment
+## 6. Wazuh deployment for this Windows environment
 
 The intended architecture is one Wazuh all-in-one Linux host (Wazuh server, indexer, and dashboard) plus the Windows Wazuh agent on this development computer. The agent reads the IDS JSONL file locally and forwards events to the manager. The Wazuh Dashboard is the only security interface; this project does not provide another dashboard.
 
@@ -136,7 +167,7 @@ Do not replace `local_rules.xml`, any built-in decoder, or any default rule file
 
 Important compatibility issue still to resolve: the IDS record contains arrays of objects, including `evidence` and `mitre_attack`, and nested threat-intelligence data. Wazuh's JSON decoder documentation says arrays of objects are not supported. Scalar top-level fields may still decode, but do not assume that the full evidence/ATT&CK/TI content is searchable. The current custom rules and decoder have not been tested with a Wazuh manager. Before relying on the integration, test the actual JSONL record with `wazuh-logtest`; if those fields are missing, add a Wazuh-safe flattened representation while preserving the original IDS alert, then retest against the installed version.
 
-## 6. Find and interpret IDS alerts in Wazuh
+## 7. Find and interpret IDS alerts in Wazuh
 
 Once an agent is connected and manager processing is verified:
 
@@ -171,7 +202,7 @@ Search only on field paths that `wazuh-logtest` confirms were extracted. For exa
 
 The manager's JSON alert log is `/var/ossec/logs/alerts/alerts.json`. Confirm an event there and in the Dashboard before calling delivery successful. A Python JSONL write, a successful local XML parse, or a ruleset-test match is not by itself proof of agent-to-manager delivery or dashboard visibility.
 
-## 7. Validate local configuration
+## 8. Validate local configuration
 
 ```powershell
 python tools\validate_wazuh_config.py

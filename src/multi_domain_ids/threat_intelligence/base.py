@@ -14,21 +14,24 @@ class BaseThreatIntelligenceProvider:
 
     def lookup(self, ip):
         try:
-            ipaddress.ip_address(str(ip))
+            address = ipaddress.ip_address(str(ip))
         except ValueError:
             return self.unavailable(ip, "invalid_ip")
+        if not address.is_global:
+            return self.unavailable(address, "non_global_ip")
         if not self.enabled:
-            return self.unavailable(ip, "disabled")
-        cached = self.cache.get(self.name, str(ip)) if self.cache else None
+            return self.unavailable(address, "disabled")
+        normalized_ip = str(address)
+        cached = self.cache.get(self.name, normalized_ip) if self.cache else None
         if cached is not None:
             return cached
         try:
-            result = self._lookup(str(ip))
+            result = self._lookup(normalized_ip)
             if self.cache:
-                self.cache.set(self.name, str(ip), result)
+                self.cache.set(self.name, normalized_ip, result)
             return result
         except Exception as exc:
-            return self.unavailable(ip, self.error_code(exc))
+            return self.unavailable(normalized_ip, self.error_code(exc))
 
     def _lookup(self, ip):
         raise NotImplementedError

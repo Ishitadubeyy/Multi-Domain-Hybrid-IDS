@@ -37,7 +37,7 @@ def test_four_provider_adapters_parse_mocked_api_responses(monkeypatch):
                     {
                         "node": {
                             "id": "indicator-1",
-                            "pattern": "[ipv4-addr:value = '203.0.113.8']",
+                            "pattern": "[ipv4-addr:value = '8.8.8.8']",
                         }
                     }
                 ]
@@ -71,7 +71,7 @@ def test_four_provider_adapters_parse_mocked_api_responses(monkeypatch):
         OTXProvider(api_key="mock", enabled=True),
         OpenCTIProvider(url="https://opencti.invalid", api_key="mock", enabled=True),
     ]
-    results = ThreatIntelligenceService(providers).lookup("203.0.113.8")
+    results = ThreatIntelligenceService(providers).lookup("8.8.8.8")
 
     assert results["abuseipdb"]["abuse_confidence_score"] == 82
     assert results["virustotal"]["malicious_count"] == 3
@@ -99,7 +99,7 @@ def test_provider_failure_is_reported_without_blocking_other_providers(monkeypat
         ]
     )
 
-    results = service.lookup("203.0.113.8")
+    results = service.lookup("8.8.8.8")
 
     assert results["virustotal"]["available"] is False
     assert results["virustotal"]["error"] == "connectionerror"
@@ -122,8 +122,8 @@ def test_cache_prevents_repeated_provider_requests(monkeypatch):
         cache=ThreatIntelligenceCache(ttl_seconds=60),
     )
 
-    first = provider.lookup("203.0.113.8")
-    second = provider.lookup("203.0.113.8")
+    first = provider.lookup("8.8.8.8")
+    second = provider.lookup("8.8.8.8")
 
     assert len(calls) == 1
     assert first == second
@@ -133,16 +133,16 @@ def test_ioc_matching_aggregation_and_environment_factory(monkeypatch):
     provider_results = {
         "otx": {
             "provider": "otx",
-            "ip": "203.0.113.8",
+            "ip": "8.8.8.8",
             "available": True,
             "pulse_count": 2,
-            "relevant_indicators": ["203.0.113.8"],
+            "relevant_indicators": ["8.8.8.8"],
         }
     }
     matches = IOCMatcher().match(
-        {"source_ip": "203.0.113.8"},
+        {"source_ip": "8.8.8.8"},
         provider_results,
-        known_iocs=[{"value": "203.0.113.8", "source": "local-list"}],
+        known_iocs=[{"value": "8.8.8.8", "source": "local-list"}],
     )
     summary = aggregate_reputation(provider_results)
 
@@ -162,3 +162,21 @@ def test_ioc_matching_aggregation_and_environment_factory(monkeypatch):
     assert service.enabled is True
     assert {provider.name for provider in service.providers} == {"abuseipdb", "virustotal", "otx", "opencti"}
     assert all(provider.api_key for provider in service.providers)
+
+
+def test_provider_does_not_send_non_global_ip_to_external_service(monkeypatch):
+    from multi_domain_ids.threat_intelligence import abuseipdb
+
+    calls = []
+    monkeypatch.setattr(
+        abuseipdb,
+        "requests",
+        SimpleNamespace(get=lambda *args, **kwargs: calls.append(args)),
+    )
+    provider = AbuseIPDBProvider(api_key="mock", enabled=True)
+
+    result = provider.lookup("10.0.0.8")
+
+    assert result["available"] is False
+    assert result["error"] == "non_global_ip"
+    assert calls == []

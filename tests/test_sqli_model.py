@@ -7,7 +7,12 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 
 from multi_domain_ids.dataset_loaders import LabeledDataset, SQLI_FEATURE_COLUMNS
-from multi_domain_ids.sqli_model import SqliModel, _grouped_split, load_sqli_model
+from multi_domain_ids.sqli_model import (
+    SqliModel,
+    _grouped_split,
+    load_sqli_model,
+    train_sqli_dataset,
+)
 
 
 def test_grouped_split_excludes_conflicting_feature_vectors_without_leakage():
@@ -50,3 +55,13 @@ def test_sqli_artifact_loader_checks_feature_order(tmp_path):
 
     with pytest.raises(ValueError, match="feature ordering"):
         load_sqli_model(path)
+
+
+def test_sqli_training_refuses_to_replace_an_existing_artifact_by_default(tmp_path):
+    artifact = tmp_path / "existing.joblib"
+    artifact.write_bytes(b"preserve me")
+
+    with pytest.raises(FileExistsError, match="explicitly allow replacement"):
+        train_sqli_dataset(tmp_path / "missing.csv", model_out=artifact)
+
+    assert artifact.read_bytes() == b"preserve me"

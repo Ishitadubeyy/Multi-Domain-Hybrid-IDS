@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Any
 
 import joblib
@@ -52,10 +54,23 @@ def train_sqli_dataset(
     test_size: float = 0.2,
     random_state: int = 42,
     model_out: str | Path | None = None,
+    overwrite: bool = False,
 ) -> tuple[SqliModel, dict[str, Any]]:
     """Train and evaluate SQLi using only loaded source rows and a grouped split."""
     if not 0.1 <= test_size <= 0.5:
         raise ValueError("test_size must be between 0.1 and 0.5")
+    artifact = Path(model_out) if model_out is not None else None
+    if artifact is not None and artifact.exists():
+        if not overwrite:
+            raise FileExistsError(
+                f"Model artifact already exists; choose another path or explicitly allow "
+                f"replacement: {artifact}"
+            )
+        backup_path = artifact.with_name(f"{artifact.name}.bak")
+        if backup_path.exists():
+            raise FileExistsError(
+                f"Refusing to overwrite the existing model backup: {backup_path}"
+            )
     dataset = load_sqli_csv(path)
     split = _grouped_split(dataset, test_size=test_size, random_state=random_state)
     train_idx, test_idx = split["train_indices"], split["test_indices"]
@@ -104,20 +119,39 @@ def train_sqli_dataset(
         },
         "artifact_path": None,
     }
-    if model_out is not None:
-        artifact = Path(model_out)
+    if artifact is not None:
         artifact.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(
-            {
-                "model": model.estimator,
-                "feature_columns": list(model.feature_columns),
-                "threshold": 0.5,
-                "dataset": str(Path(path).resolve()),
-                "metrics": report["metrics"],
-            },
-            artifact,
-        )
+        backup_path = None
+        if artifact.exists():
+            backup_path = artifact.with_name(f"{artifact.name}.bak")
+            shutil.copy2(artifact, backup_path)
+        with tempfile.NamedTemporaryFile(
+            prefix=f"{artifact.name}.",
+            suffix=".tmp",
+            dir=artifact.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+        replaced = False
+        try:
+            joblib.dump(
+                {
+                    "model": model.estimator,
+                    "feature_columns": list(model.feature_columns),
+                    "threshold": 0.5,
+                    "dataset": str(Path(path).resolve()),
+                    "metrics": report["metrics"],
+                },
+                temporary_path,
+            )
+            temporary_path.replace(artifact)
+            replaced = True
+        finally:
+            temporary_path.unlink(missing_ok=True)
+            if backup_path is not None and not replaced:
+                backup_path.unlink(missing_ok=True)
         report["artifact_path"] = str(artifact.resolve())
+        report["backup_path"] = str(backup_path.resolve()) if backup_path else None
     return model, report
 
 

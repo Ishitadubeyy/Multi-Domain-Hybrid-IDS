@@ -140,14 +140,53 @@ def test_lanl_loader_uses_observed_positional_fields_without_labeling(tmp_path):
     assert chunks[1].iloc[0].tolist() == ["6", "C1191", "C419"]
 
 
-def test_lanl_documented_auth_and_proc_schemas_are_reference_only():
+def test_lanl_auth_and_proc_schemas_are_documented_and_supported():
     assert len(LANL_DOCUMENTED_ONLY_COLUMNS["auth"]) == 9
     assert len(LANL_DOCUMENTED_ONLY_COLUMNS["proc"]) == 5
+    assert LANL_POSITIONAL_FIELD_COUNTS["auth"] == 9
+    assert LANL_POSITIONAL_FIELD_COUNTS["proc"] == 5
 
 
-def test_lanl_proc_schema_is_not_assumed():
-    with pytest.raises(ValueError, match="proc remains pending"):
-        next(iter_lanl_chunks("proc", "proc.txt.gz"))
+@pytest.mark.parametrize(
+    ("dataset_name", "row"),
+    [
+        ("auth", "1,U1@DOM1,U2@DOM1,C1,C2,Kerberos,Network,LogOn,Success\n"),
+        ("proc", "1,U1@DOM1,C1,P1,Start\n"),
+    ],
+)
+def test_lanl_auth_and_proc_rows_use_verified_local_schemas(tmp_path, dataset_name, row):
+    source = tmp_path / f"{dataset_name}.txt.gz"
+    with gzip.open(source, "wt", encoding="utf-8", newline="") as stream:
+        stream.write(row)
+
+    frame = next(iter_lanl_chunks(dataset_name, source))
+
+    assert frame.columns.tolist() == list(LANL_COLUMN_NAMES[dataset_name])
+    assert frame.shape[1] == LANL_POSITIONAL_FIELD_COUNTS[dataset_name]
+
+
+def test_lanl_can_skip_and_report_malformed_records(tmp_path):
+    source = tmp_path / "auth_malformed.txt.gz"
+    with gzip.open(source, "wt", encoding="utf-8", newline="") as stream:
+        stream.write("1,U1@DOM1,U2@DOM1,C1,C2,Kerberos,Network,LogOn,Success\n")
+        stream.write("2,malformed,row\n")
+        stream.write("3,U1@DOM1,U2@DOM1,C1,C2,Kerberos,Network,LogOn,Failure\n")
+    malformed = []
+
+    chunks = list(
+        iter_lanl_chunks(
+            "auth",
+            source,
+            chunksize=1,
+            malformed_rows="skip",
+            malformed_row_handler=lambda *entry: malformed.append(entry),
+        )
+    )
+
+    assert [len(chunk) for chunk in chunks] == [1, 1]
+    assert chunks[-1].attrs["source_record_end"] == 3
+    assert sum(chunk.attrs["malformed_rows"] for chunk in chunks) == 1
+    assert malformed == [(2, 3, 9)]
 
 
 def test_lanl_rejects_rows_with_missing_or_extra_fields(tmp_path):

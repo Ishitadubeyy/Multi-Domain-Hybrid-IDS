@@ -4,7 +4,7 @@ import csv
 from dataclasses import dataclass
 import gzip
 from pathlib import Path
-from typing import IO, Iterator
+from typing import IO, Callable, Iterator
 import zipfile
 import zlib
 
@@ -42,6 +42,17 @@ SQLI_FEATURE_COLUMNS = (
 )
 
 LANL_COLUMN_NAMES = {
+    "auth": (
+        "time",
+        "source_user_domain",
+        "destination_user_domain",
+        "source_computer",
+        "destination_computer",
+        "authentication_type",
+        "logon_type",
+        "authentication_orientation",
+        "success_failure",
+    ),
     "dns": ("time", "source_computer", "resolved_computer"),
     "flows": (
         "time",
@@ -60,21 +71,11 @@ LANL_COLUMN_NAMES = {
         "source_computer",
         "destination_computer",
     ),
+    "proc": ("time", "user_domain", "computer", "process_name", "start_end"),
 }
 
 LANL_DOCUMENTED_ONLY_COLUMNS = {
-    "auth": (
-        "time",
-        "source_user_domain",
-        "destination_user_domain",
-        "source_computer",
-        "destination_computer",
-        "authentication_type",
-        "logon_type",
-        "authentication_orientation",
-        "success_failure",
-    ),
-    "proc": ("time", "user_domain", "computer", "process_name", "start_end"),
+    dataset: LANL_COLUMN_NAMES[dataset] for dataset in ("auth", "proc")
 }
 
 LANL_POSITIONAL_FIELD_COUNTS = {
@@ -305,19 +306,26 @@ def iter_lanl_chunks(
     path: str | Path,
     *,
     chunksize: int = 100_000,
+    malformed_rows: str = "raise",
+    malformed_row_handler: Callable[[int, int, int], None] | None = None,
+    skip_records: int = 0,
 ) -> Iterator[pd.DataFrame]:
     """Read headerless LANL records with documented names and strict row widths.
 
-    Names follow the official LANL format descriptions. Only locally located
-    DNS, flows, and redteam files are accepted; documented missing-value
-    placeholders are normalized, and no binary labels are fabricated.
+    Names follow the official LANL format descriptions. Authentication and
+    process schemas are validated against the locally downloaded files;
+    documented missing-value placeholders are normalized, and no binary
+    labels are fabricated.
     """
     if chunksize <= 0:
         raise ValueError("chunksize must be greater than zero")
+    if malformed_rows not in {"raise", "skip"}:
+        raise ValueError("malformed_rows must be either 'raise' or 'skip'")
+    if skip_records < 0:
+        raise ValueError("skip_records must not be negative")
     if dataset not in LANL_POSITIONAL_FIELD_COUNTS:
         raise ValueError(
-            f"No verified positional schema for LANL {dataset!r}; "
-            "proc remains pending until its schema is inspected"
+            f"No verified positional schema for LANL {dataset!r}"
         )
 
     columns = LANL_COLUMN_NAMES[dataset]
@@ -325,18 +333,39 @@ def iter_lanl_chunks(
     opener = gzip.open if source.suffix.lower() == ".gz" else open
     with opener(source, "rt", encoding="utf-8", newline="") as stream:
         rows: list[list[str]] = []
-        for line_number, row in enumerate(csv.reader(stream), start=1):
+        record_number = 0
+        chunk_start_record = skip_records + 1
+        chunk_malformed = 0
+        for row in csv.reader(stream, strict=True):
+            record_number += 1
+            if record_number <= skip_records:
+                continue
             if len(row) != len(columns):
-                raise ValueError(
-                    f"LANL {dataset} row {line_number} has {len(row)} fields; "
-                    f"expected {len(columns)}"
-                )
+                if malformed_rows == "raise":
+                    raise ValueError(
+                        f"LANL {dataset} row {record_number} has {len(row)} fields; "
+                        f"expected {len(columns)}"
+                    )
+                chunk_malformed += 1
+                if malformed_row_handler is not None:
+                    malformed_row_handler(record_number, len(row), len(columns))
+                continue
             rows.append([value.strip() for value in row])
             if len(rows) == chunksize:
-                yield _lanl_frame(rows, columns)
+                frame = _lanl_frame(rows, columns)
+                frame.attrs["source_record_start"] = chunk_start_record
+                frame.attrs["source_record_end"] = record_number
+                frame.attrs["malformed_rows"] = chunk_malformed
+                yield frame
                 rows = []
-        if rows:
-            yield _lanl_frame(rows, columns)
+                chunk_malformed = 0
+                chunk_start_record = record_number + 1
+        if rows or chunk_malformed:
+            frame = _lanl_frame(rows, columns)
+            frame.attrs["source_record_start"] = chunk_start_record
+            frame.attrs["source_record_end"] = record_number
+            frame.attrs["malformed_rows"] = chunk_malformed
+            yield frame
 
 
 def _lanl_frame(rows: list[list[str]], columns: tuple[str, ...]) -> pd.DataFrame:

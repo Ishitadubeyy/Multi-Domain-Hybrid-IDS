@@ -167,7 +167,7 @@ def test_processor_matches_provider_ioc_in_normalized_event(tmp_path):
         threat_intelligence=ProviderService(),
     )
     alert = processor.process(
-        {"source_ip": "203.0.113.8"},
+        {"source_ip": "8.8.8.8"},
         detection_domain="network",
         detection_source="model",
         event_category="network_flow",
@@ -181,6 +181,39 @@ def test_processor_matches_provider_ioc_in_normalized_event(tmp_path):
     assert alert["threat_intelligence"]["ioc_matches"][0]["source"] == "otx"
     assert alert["severity"] == "high"
     assert alert["threat_intelligence"]["assessment"]["score"] >= 0.0
+
+
+def test_processor_never_submits_non_global_addresses_to_providers(tmp_path):
+    class ProviderService:
+        enabled = True
+
+        def __init__(self):
+            self.lookups = []
+
+        def lookup(self, ip):
+            self.lookups.append(ip)
+            return {}
+
+    service = ProviderService()
+    processor = AlertProcessor(
+        JsonlAlertSink(tmp_path / "alerts.jsonl"),
+        threat_intelligence=service,
+    )
+    alert = processor.process(
+        {"source_ip": "10.1.2.3", "destination_ip": "192.168.1.20"},
+        detection_domain="network",
+        detection_source="test",
+        event_category="network_flow",
+        attack_name="test",
+        model_name="test",
+        suspicious=False,
+        confidence_score=0.1,
+    )
+
+    assert service.lookups == []
+    assert alert[0]["threat_intelligence"]["provider_results"][
+        "source_ip:lookup_policy"
+    ]["error"] == "non_global_ip_skipped"
 
 
 def test_wazuh_example_xml_files_are_well_formed():
