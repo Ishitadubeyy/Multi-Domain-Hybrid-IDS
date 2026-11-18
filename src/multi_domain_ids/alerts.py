@@ -11,6 +11,9 @@ from .mitre import map_mitre_attack
 from .severity import assess_severity
 
 _OPTIONAL_FIELDS = (
+    "event_source",
+    "simulation_scenario",
+    "simulation_ground_truth",
     "source_ip",
     "destination_ip",
     "source_port",

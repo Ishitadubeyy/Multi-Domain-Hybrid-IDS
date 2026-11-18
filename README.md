@@ -99,6 +99,42 @@ print(summary)
 
 The SQLi dataset's raw-query feature definitions could not all be verified from source data, so SQLi inference requires the original 26-feature schema; no guessed raw-query feature extractor is included. Only the network and SQLi paths have actual trained models. Other domain pipelines are demo-only.
 
+### Run the existing live traffic simulator
+
+The simulator replays the existing labeled CICIDS-format or SQLi CSV data through
+`NetworkSecurityPipeline` / `SqliModel`, then through `AlertProcessor` and
+`JsonlAlertSink`. It does not create a separate detector or convert scenario
+labels directly into alert predictions.
+
+```powershell
+python live_traffic_simulator.py `
+  --scenario mixed `
+  --limit 100 `
+  --delay 0.5
+```
+
+The default JSONL path is `C:\ProgramData\MultiDomainIDS\ids_alerts.jsonl`,
+which is also the example Wazuh agent `localfile` path. Use `--overwrite` only
+when intentionally truncating that file. Stop a running replay with `Ctrl+C`;
+use `--limit` or `--target-alerts` for bounded runs.
+
+```powershell
+# Bounded simulation
+python live_traffic_simulator.py --scenario attackburst --target-alerts 20 --delay 0.2
+
+# Replay actual 26-feature SQLi rows
+python live_traffic_simulator.py --scenario sqli --data "C:\Users\ISHITA DUBEY\Downloads\Normal &Malicious SQLi.csv" --limit 100 --delay 0.2
+
+# Inspect generated records
+Get-Content "C:\ProgramData\MultiDomainIDS\ids_alerts.jsonl" -Tail 20
+```
+
+The source label is preserved separately as `simulation_ground_truth`; it is
+not used as model prediction. Supported network rows use
+`models/final_model.joblib`; supported SQLi rows use
+`models/sqli_model.joblib`. IP addresses and protocol fields are omitted when
+the source dataset does not provide them rather than being invented.
+
 The local SQLi evaluation used a 20% `GroupShuffleSplit` holdout by exact feature vector. It excluded 136 rows from five feature-vector groups with conflicting labels, leaving 51,106 training rows and 12,930 test rows. Measured on that split: accuracy 0.998685, precision 0.998031, recall 0.999737, F1 0.998883, ROC AUC 0.999984, and average precision 0.999988; confusion matrix (Normal, Malicious) was `[[5309, 15], [2, 7604]]`. These are dataset-specific holdout results, not evidence of real-world generalization. The model artifact is local at `models/sqli_model.joblib` and ignored by Git; evaluation details are in [dataset_manifest.json](dataset_manifest.json).
 
 See [docs/BEGINNER_GUIDE.md](docs/BEGINNER_GUIDE.md) for environment-variable setup, the JSONL event contract, and Wazuh agent/manager configuration steps. Example files are in [wazuh/](wazuh/). The Windows agent service is running, but its protected configuration could not be read and no connection to the manager ports was observed; decoder field extraction, rule matches, and end-to-end delivery remain unverified. A successful JSONL write is not evidence that Wazuh received the event.

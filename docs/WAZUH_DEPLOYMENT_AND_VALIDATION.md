@@ -38,6 +38,17 @@ evidence. Arrays of objects and nested threat-intelligence content may not be
 searchable with Wazuh's JSON decoder; validate the scalar fields against the
 installed Wazuh version.
 
+## Live simulation verification status
+
+A local replay of five rows from the existing `simulation_data.csv` was
+executed through `NetworkSecurityPipeline`, `AlertProcessor`, and
+`JsonlAlertSink`. It produced a mix of benign and suspicious model predictions,
+including a DoS Hulk source row classified suspicious. JSONL output contained
+normalized alerts with separate `simulation_ground_truth` and
+`model_prediction` fields. This verifies local processing and JSONL generation
+only; it does not verify Wazuh agent delivery, indexing, or Dashboard
+visibility.
+
 ## End-to-end acceptance procedure
 
 1. Generate a clearly labeled controlled IDS test event and confirm one JSON

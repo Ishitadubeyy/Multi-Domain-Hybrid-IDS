@@ -33,6 +33,29 @@ _ACTION_STEPS = {
 
 def explain_alert(alert: Mapping[str, Any]) -> dict[str, Any]:
     """Build a deterministic, evidence-linked explanation and response checklist."""
+    if str(alert.get("model_prediction", "")).lower() == "benign":
+        return {
+            "alert_title": "Benign or normal activity",
+            "what_happened": "The existing IDS evaluated this event as benign under its preserved model threshold.",
+            "why_detected": "No suspicious model classification was produced; this is a prediction, not proof of safety.",
+            "potential_impact": "No suspicious impact was identified by the available detector.",
+            "confidence_note": (
+                f"Model confidence is {float(alert['confidence_score']):.3f}; it is a model score and is not necessarily calibrated."
+                if isinstance(alert.get("confidence_score"), (int, float))
+                else "No model confidence score was provided."
+            ),
+            "severity_reason": str(alert.get("severity_reason", "The event was not classified as suspicious.")),
+            "evidence_summary": [],
+            "immediate_action": "No immediate containment is indicated; retain the event for normal monitoring.",
+            "investigation_steps": [
+                "Review nearby activity if this asset or flow is unusual for the environment.",
+                "Compare the model prediction with the separately displayed simulation ground truth.",
+            ],
+            "containment_recommendation": "Do not automatically block, isolate, or disable anything for a benign classification.",
+            "recovery_guidance": "No recovery action is indicated unless independent evidence identifies impact.",
+            "escalation_guidance": "Escalate if other evidence or correlated activity indicates a real incident.",
+            "automated_response": "No containment or remediation action was performed automatically.",
+        }
     attack = str(alert.get("attack_name", "suspicious_activity")).strip().lower()
     title, impact = _ATTACK_TEXT.get(
         attack,

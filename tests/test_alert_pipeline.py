@@ -5,6 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from multi_domain_ids.alert_pipeline import AlertProcessor, JsonlAlertSink
@@ -214,6 +215,53 @@ def test_processor_never_submits_non_global_addresses_to_providers(tmp_path):
     assert alert[0]["threat_intelligence"]["provider_results"][
         "source_ip:lookup_policy"
     ]["error"] == "non_global_ip_skipped"
+
+
+def test_live_simulator_routes_network_rows_through_alert_pipeline(tmp_path):
+    from live_traffic_simulator import run_live_simulation
+
+    values = {
+        "Flow Duration": [100.0],
+        "Total Fwd Packets": [10],
+        "Total Backward Packets": [5],
+        "Total Length of Fwd Packets": [1000.0],
+        "Total Length of Bwd Packets": [800.0],
+        "Fwd Packet Length Max": [100.0],
+        "Fwd Packet Length Min": [10.0],
+        "Fwd Packet Length Mean": [50.0],
+        "Fwd Packet Length Std": [20.0],
+        "Bwd Packet Length Max": [90.0],
+        "Bwd Packet Length Min": [15.0],
+        "Bwd Packet Length Mean": [45.0],
+        "Bwd Packet Length Std": [18.0],
+        "Flow Bytes/s": [18000.0],
+        "Flow Packets/s": [150.0],
+        "Packet Length Mean": [48.0],
+        "Packet Length Std": [22.0],
+        "Destination Port": [445],
+        "Label": ["BENIGN"],
+    }
+    source = tmp_path / "simulation.csv"
+    pd.DataFrame(values).to_csv(source, index=False)
+    output = tmp_path / "alerts.jsonl"
+
+    run_live_simulation(
+        model_path="models/final_model.joblib",
+        data_path=source,
+        output_path=output,
+        scenario="mixed",
+        delay=0,
+        limit=1,
+        overwrite=True,
+    )
+
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert records
+    assert records[0]["event_source"] == "simulation"
+    assert records[0]["simulation_ground_truth"] == "BENIGN"
+    assert records[0]["model_name"] == "hybrid_voting_5ensemble_v3"
+    assert records[0]["detection_domain"] == "network"
+    assert records[0]["explanation"]["alert_title"] == "Benign or normal activity"
 
 
 def test_wazuh_example_xml_files_are_well_formed():
